@@ -29,12 +29,30 @@ public sealed class StartupTargetBootstrapSubsystem : IEngineSubsystem
                 "Application shell startup requires a loaded workspace manifest.");
 
         StartupTargetOptions selection = kernel.Config?.StartupTarget ?? StartupTargetOptions.None;
-        ResolvedStartupTarget target = selection.Resolve(project);
+        ProfileDefinition? profileDefinition = null;
+        project.Profiles?.TryGetValue(kernel.Config?.Profile ?? string.Empty, out profileDefinition);
+        ResolvedStartupTarget target = selection.Resolve(project, profileDefinition);
+        if (target.HasSample)
+        {
+            // A sample id resolves through the workspace catalogue into the scene and/or world the
+            // entry declares; the shell never names content on its own.
+            var catalogues = kernel.Services.GetService<ISampleCatalogueService>();
+            SampleDefinition sample = catalogues.GetSample(target.Sample!);
+            KernelLog.InfoFormat(
+                "[ApplicationShell] Sample '{0}': {1}",
+                sample.Id,
+                string.IsNullOrWhiteSpace(sample.Description) ? "<no description>" : sample.Description);
+            target = new ResolvedStartupTarget(
+                ToProjectReference(sample.Scene),
+                ToProjectReference(sample.World),
+                Sample: null);
+        }
+
         if (!target.HasTarget)
         {
             throw new InvalidOperationException(
                 "The workspace declares no startup target. Declare StartupScene or StartupWorld in " +
-                "the manifest, or pass --startup-scene/--startup-world.");
+                "the manifest, or pass --startup-scene/--startup-world/--startup-sample.");
         }
 
         sceneSubsystem.RegisterSystem(new MeshSystem());
@@ -87,4 +105,13 @@ public sealed class StartupTargetBootstrapSubsystem : IEngineSubsystem
     public void Dispose()
     {
     }
+
+    private static ProjectAssetReference? ToProjectReference(SampleTargetReference? reference) =>
+        reference == null
+            ? null
+            : new ProjectAssetReference
+            {
+                Guid = reference.Guid,
+                PackageId = reference.PackageId
+            };
 }

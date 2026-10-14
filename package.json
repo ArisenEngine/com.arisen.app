@@ -18,7 +18,8 @@
     "requires": [
       "ArisenEngine.Resources.Serialization.IRuntimeSceneService",
       "ArisenEngine.Resources.Serialization.IRuntimeWorldStreamingService",
-      "ArisenEngine.Resources.Serialization.IWorldOriginService"
+      "ArisenEngine.Resources.Serialization.IWorldOriginService",
+      "ArisenEngine.Resources.Serialization.ISampleCatalogueService"
     ]
   },
   "dependencies": {
