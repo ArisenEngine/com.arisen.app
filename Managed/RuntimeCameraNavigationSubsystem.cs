@@ -37,6 +37,11 @@ public sealed class RuntimeCameraNavigationSubsystem : ITickableSubsystem
     private bool m_HasCamera;
     private bool m_HasPublishedStreamingSource;
     private bool m_HasLoggedCameraPose;
+    private IRuntimeViewTarget? m_ViewTarget;
+    private bool m_IsFollowing;
+    private float m_FollowYawDegrees;
+    private float m_FollowPitchDegrees;
+    private bool m_HasLoggedFollowMode;
 
     public int Priority => 60;
 
@@ -63,6 +68,7 @@ public sealed class RuntimeCameraNavigationSubsystem : ITickableSubsystem
 
         kernel.Services.TryGetService<IInputProvider>(out m_Input);
         kernel.Services.TryGetService<IWorldOriginService>(out m_Origin);
+        kernel.Services.TryGetService<IRuntimeViewTarget>(out m_ViewTarget);
         m_WorldStreaming = kernel.Services.GetService<IRuntimeWorldStreamingService>();
         if (m_Input == null || m_Origin == null || m_WorldStreaming == null)
         {
@@ -104,6 +110,20 @@ public sealed class RuntimeCameraNavigationSubsystem : ITickableSubsystem
         }
 
         LogResolvedCameraOnce(transform);
+
+        // A published view target turns the viewer into a third-person follow camera: the player
+        // walks with WASD (the package that owns it reads the input) and mouse look orbits here.
+        if (m_ViewTarget != null &&
+            m_ViewTarget.IsActive &&
+            m_ViewTarget.TryGetTarget(out Vector3 followTarget) &&
+            IsFinite(followTarget))
+        {
+            ApplyFollowView(ref transform, followTarget);
+            PublishStreamingSource(followTarget);
+            return;
+        }
+
+        m_IsFollowing = false;
         ApplyLook(ref transform);
         ApplyMovement(ref transform, deltaTime);
         PublishStreamingSource(transform.Position);
@@ -118,6 +138,8 @@ public sealed class RuntimeCameraNavigationSubsystem : ITickableSubsystem
         }
 
         m_Input = null;
+        m_ViewTarget = null;
+        m_IsFollowing = false;
         m_WorldStreaming = null;
         m_Origin = null;
         m_HasCamera = false;
@@ -127,6 +149,56 @@ public sealed class RuntimeCameraNavigationSubsystem : ITickableSubsystem
     public void Dispose()
     {
         Shutdown();
+    }
+
+    /// <summary>
+    /// Places the camera behind a published target. The orbit starts from the camera's authored
+    /// pose so entering follow mode never snaps the view, and mouse look keeps the shell's yaw and
+    /// pitch conventions through <see cref="RuntimeViewTargetCamera"/>.
+    /// </summary>
+    private void ApplyFollowView(ref TransformComponent transform, Vector3 target)
+    {
+        IInputProvider input = m_Input!;
+        if (!m_IsFollowing)
+        {
+            m_IsFollowing = true;
+            Vector3 eulerDegrees = transform.Rotation.QuaternionToEulerDegrees();
+            m_FollowYawDegrees = eulerDegrees.Y;
+            m_FollowPitchDegrees = eulerDegrees.X;
+            if (!m_HasLoggedFollowMode)
+            {
+                m_HasLoggedFollowMode = true;
+                KernelLog.Info(
+                    "[RuntimeCamera] A view target is published; the camera follows it in third " +
+                    "person. WASD drives the target, right mouse button orbits the camera.");
+            }
+        }
+
+        bool looking = input.IsMouseButtonDown(InputMouseButton.Right);
+        if (looking != input.IsCursorCaptured)
+        {
+            input.SetCursorCapture(looking);
+        }
+
+        if (looking)
+        {
+            (m_FollowYawDegrees, m_FollowPitchDegrees) = RuntimeViewTargetCamera.ApplyLook(
+                m_FollowYawDegrees,
+                m_FollowPitchDegrees,
+                input.MouseDeltaX,
+                input.MouseDeltaY);
+        }
+
+        RuntimeViewTargetCamera.ComputeFollowPose(
+            target,
+            m_FollowYawDegrees,
+            m_FollowPitchDegrees,
+            RuntimeViewTargetCamera.DefaultDistance,
+            RuntimeViewTargetCamera.DefaultHeight,
+            out Vector3 position,
+            out Quaternion rotation);
+        transform.Position = position;
+        transform.Rotation = rotation;
     }
 
     private void ApplyLook(ref TransformComponent transform)

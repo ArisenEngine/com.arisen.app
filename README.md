@@ -10,7 +10,10 @@ It owns the boot plumbing that must behave identically for every product:
   wins over a scene, and a process that resolves to no target fails loudly.
 - **The interactive runtime viewer.** Free-fly camera navigation and the world streaming source it
   publishes. It idles in editor builds and in bounded smoke runs, where the editor host or the
-  smoke scenario owns world activation.
+  smoke scenario owns world activation. When a package publishes an `IRuntimeViewTarget`, the
+  viewer follows that target in third person instead of flying: WASD drives the target and the right
+  mouse button orbits, so a character sample is playable without the shell depending on the package
+  that owns the character.
 
 ## Why it exists
 
